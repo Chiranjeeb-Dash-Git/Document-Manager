@@ -2,9 +2,13 @@ import axios from 'axios';
 
 export const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export function getApiErrorMessage(error: unknown, fallback: string) {
-  if (axios.isAxiosError<{ error?: string }>(error)) {
-    return error.response?.data?.error || fallback;
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    // Backend errors are { error: "..." } (a string). Platform errors (e.g. a
+    // Vercel 500) can be an object like { error: { code, message } } — returning
+    // a non-string here would crash React when rendered, so coerce to fallback.
+    const apiError = (error.response?.data as { error?: unknown } | undefined)?.error;
+    if (typeof apiError === 'string' && apiError.trim()) return apiError;
   }
 
   return fallback;
