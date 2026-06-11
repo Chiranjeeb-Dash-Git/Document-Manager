@@ -82,7 +82,9 @@ function composePassportPhoto(
   bgHex: string,
   brightness: number,
   contrast: number,
-  zoom: number
+  zoom: number,
+  panX: number,
+  panY: number
 ): { dataUrl: string; canvas: HTMLCanvasElement } {
   const size = PASSPORT_SIZES[sizeKey];
   const outW = mmToPx(size.w, size.dpi);
@@ -114,8 +116,8 @@ function composePassportPhoto(
   // Apply zoom
   drawW *= zoom;
   drawH *= zoom;
-  drawX = (outW - drawW) / 2;
-  drawY = (outH - drawH) / 2;
+  drawX = (outW - drawW) / 2 + panX;
+  drawY = (outH - drawH) / 2 + panY;
 
   // Apply brightness/contrast via CSS filter on offscreen canvas
   const offscreen = document.createElement('canvas');
@@ -206,6 +208,12 @@ export default function PassportPhoto() {
   const [contrast, setContrast] = useState(100);
   const [showSizeDropdown, setShowSizeDropdown] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+
+  // Pan dragging refs
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const lastPan = useRef({ x: 0, y: 0 });
 
   // Result state
   const [processedUrl, setProcessedUrl] = useState<string | null>(null);
@@ -285,7 +293,7 @@ export default function PassportPhoto() {
       setComposing(true);
       try {
         const { dataUrl, canvas } = composePassportPhoto(
-          sourceImg, selectedSize, effectiveBg, brightness, contrast, zoom
+          sourceImg, selectedSize, effectiveBg, brightness, contrast, zoom, pan.x, pan.y
         );
         setProcessedUrl(dataUrl);
         const sheet = buildPrintSheet(canvas, selectedSize);
@@ -298,7 +306,7 @@ export default function PassportPhoto() {
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [transparentImg, originalImg, skippedAI, selectedSize, effectiveBg, brightness, contrast, zoom]);
+  }, [transparentImg, originalImg, skippedAI, selectedSize, effectiveBg, brightness, contrast, zoom, pan]);
 
   // ── Download helpers ──────────────────────────────────────────────────────
   const downloadSingle = () => {
@@ -629,16 +637,46 @@ export default function PassportPhoto() {
                 <AnimatePresence mode="wait">
                   {processedUrl ? (
                     <motion.div key="result" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center gap-2">
-                      <img
-                        src={processedUrl}
-                        alt="Passport photo"
-                        className="max-h-[140px] max-w-full object-contain rounded-lg shadow-2xl transition-transform"
-                      />
+                      <div 
+                        className="relative cursor-move group touch-none"
+                        onPointerDown={(e) => {
+                          isDragging.current = true;
+                          dragStart.current = { x: e.clientX, y: e.clientY };
+                          lastPan.current = { ...pan };
+                          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                        }}
+                        onPointerMove={(e) => {
+                          if (!isDragging.current) return;
+                          // Invert dx/dy or scale depending on what feels right.
+                          // A multiplier of 2 makes panning responsive to the scaled-down preview
+                          const dx = (e.clientX - dragStart.current.x) * 2;
+                          const dy = (e.clientY - dragStart.current.y) * 2;
+                          setPan({ x: lastPan.current.x + dx, y: lastPan.current.y + dy });
+                        }}
+                        onPointerUp={(e) => {
+                          isDragging.current = false;
+                          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+                        }}
+                        onPointerCancel={(e) => {
+                          isDragging.current = false;
+                          (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+                        }}
+                      >
+                        <img
+                          src={processedUrl}
+                          alt="Passport photo"
+                          draggable={false}
+                          className="max-h-[140px] max-w-full object-contain rounded-lg shadow-2xl transition-transform pointer-events-none"
+                        />
+                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none">
+                          <span className="text-white text-[10px] font-bold tracking-widest uppercase px-2 py-1 bg-black/40 rounded">Drag to Pan</span>
+                        </div>
+                      </div>
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => setZoom(z => Math.max(0.5, z - 0.15))} className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"><ZoomOut className="w-3 h-3 text-slate-400" /></button>
                         <span className="text-[10px] text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
-                        <button onClick={() => setZoom(z => Math.min(2, z + 0.15))} className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"><ZoomIn className="w-3 h-3 text-slate-400" /></button>
-                        <button onClick={() => setZoom(1)} className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"><RotateCcw className="w-3 h-3 text-slate-400" /></button>
+                        <button onClick={() => setZoom(z => Math.min(3, z + 0.15))} className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"><ZoomIn className="w-3 h-3 text-slate-400" /></button>
+                        <button onClick={() => { setZoom(1); setPan({x:0, y:0}); }} className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"><RotateCcw className="w-3 h-3 text-slate-400" /></button>
                       </div>
                     </motion.div>
                   ) : (
