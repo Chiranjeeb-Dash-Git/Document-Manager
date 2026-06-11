@@ -385,7 +385,8 @@ router.post('/:id/requests', authMiddleware, async (req: any, res: any) => {
       const reqRef = await db.collection('signatureRequests').add(reqData);
 
       // Attempt to send email
-      const signLink = `http://localhost:5173/sign/public/${token}`;
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const signLink = `${frontendUrl}/sign/public/${token}`;
       const sent = await sendSigningEmail(email, signLink, document.filename);
       if (sent) {
         reqData.emailSent = true;
@@ -439,7 +440,8 @@ router.post('/:id/requests/:requestId/send-email', authMiddleware, async (req: a
     if (!reqSnap.exists) return res.status(404).json({ error: 'Request not found' });
     const reqData = reqSnap.data() as any;
 
-    const signLink = `http://localhost:5173/sign/public/${reqData.token}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const signLink = `${frontendUrl}/sign/public/${reqData.token}`;
     const sent = await sendSigningEmail(reqData.email, signLink, document.filename);
 
     if (sent) {

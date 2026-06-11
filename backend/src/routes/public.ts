@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { PDFDocument, degrees } from 'pdf-lib';
 import fs from 'fs';
-import { db } from '../firebase';
+import { db, bucket } from '../firebase';
 
 const router = express.Router();
 
@@ -60,8 +60,17 @@ router.post('/requests/:token/sign', async (req: any, res: any) => {
 
     const { x, y, width, height, pageNum, signatureImage, rotation } = req.body;
 
-    const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
-    const existingPdfBytes = fs.readFileSync(pdfPath);
+    // Read PDF from Firebase Storage (Vercel has no persistent local filesystem)
+    let existingPdfBytes: Buffer;
+    const fileRef = bucket.file(documentData.filepath);
+    const [exists] = await fileRef.exists();
+    if (exists) {
+      const [buffer] = await fileRef.download();
+      existingPdfBytes = buffer;
+    } else {
+      const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
+      existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
+    }
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
     
     const page = pdfDoc.getPages()[pageNum - 1];
@@ -83,7 +92,13 @@ router.post('/requests/:token/sign', async (req: any, res: any) => {
     });
 
     const pdfBytes = await pdfDoc.save();
-    fs.writeFileSync(pdfPath, pdfBytes);
+    // Save back to Firebase Storage (or local disk as fallback)
+    if (exists) {
+      await fileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
+    } else {
+      const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
+      fs.writeFileSync(pdfPath, pdfBytes);
+    }
 
     // Update SignatureRequest
     await requestDoc.ref.update({ status: 'Signed', updatedAt: new Date().toISOString() });
@@ -176,8 +191,17 @@ router.post('/document/:token/sign', async (req: any, res: any) => {
 
     // Only modify the PDF if a signature image was provided
     if (signatureImage) {
-      const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
-      const existingPdfBytes = fs.readFileSync(pdfPath);
+      // Read PDF from Firebase Storage (Vercel has no persistent local filesystem)
+      let existingPdfBytes: Buffer;
+      const fileRef = bucket.file(document.filepath);
+      const [fileExists] = await fileRef.exists();
+      if (fileExists) {
+        const [buffer] = await fileRef.download();
+        existingPdfBytes = buffer;
+      } else {
+        const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
+        existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
+      }
       const pdfDoc = await PDFDocument.load(existingPdfBytes);
       
       const page = pdfDoc.getPages()[pageNum - 1];
@@ -199,7 +223,13 @@ router.post('/document/:token/sign', async (req: any, res: any) => {
       });
 
       const pdfBytes = await pdfDoc.save();
-      fs.writeFileSync(pdfPath, pdfBytes);
+      // Save back to Firebase Storage (or local disk as fallback)
+      if (fileExists) {
+        await fileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
+      } else {
+        const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
+        fs.writeFileSync(pdfPath, pdfBytes);
+      }
     }
 
     // Add History

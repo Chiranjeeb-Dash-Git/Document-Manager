@@ -4,22 +4,16 @@ import path from 'path';
 import fs from 'fs';
 import sharp from 'sharp';
 import CloudConvert from 'cloudconvert';
+import os from 'os';
 
 const router = express.Router();
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(process.cwd(), 'uploads', 'convert');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${Date.now()}-${safeName}`);
-  },
+
+// Use memory storage for Vercel compatibility (no persistent disk)
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
-const upload = multer({ storage });
 
 const cloudConvert = process.env.CLOUDCONVERT_API_KEY 
   ? new CloudConvert(process.env.CLOUDCONVERT_API_KEY)
@@ -33,42 +27,49 @@ router.post('/image', upload.single('file'), async (req: any, res: any) => {
     
     const targetFormat = req.body.targetFormat || 'jpg';
     const quality = Math.max(1, Math.min(100, parseInt(req.body.quality) || 90));
-    const inputPath = req.file.path;
-    const outputFilename = `${path.parse(req.file.filename).name}.${targetFormat}`;
-    const outputPath = path.join(process.cwd(), 'uploads', 'convert', outputFilename);
+    const outputFilename = `${path.parse(req.file.originalname).name}.${targetFormat}`;
     
     const ext = path.extname(req.file.originalname).toLowerCase();
+    let outputBuffer: Buffer;
     
     if (ext === '.heic' || ext === '.heif') {
       const heicConvert = require('heic-convert');
-      const inputBuffer = fs.readFileSync(inputPath);
       const jpegBuffer = await heicConvert({
-        buffer: inputBuffer,
+        buffer: req.file.buffer,
         format: 'JPEG',
         quality: quality / 100
       });
       
       if (targetFormat === 'jpg' || targetFormat === 'jpeg') {
-        fs.writeFileSync(outputPath, jpegBuffer as Uint8Array);
+        outputBuffer = Buffer.from(jpegBuffer);
       } else {
-        await sharp(Buffer.from(jpegBuffer))
+        outputBuffer = await sharp(Buffer.from(jpegBuffer))
           .toFormat(targetFormat as any, { quality })
-          .toFile(outputPath);
+          .toBuffer();
       }
     } else {
-      await sharp(inputPath)
+      outputBuffer = await sharp(req.file.buffer)
         .toFormat(targetFormat as any, { quality })
-        .toFile(outputPath);
+        .toBuffer();
     }
-      
-    // Cleanup input
-    fs.unlinkSync(inputPath);
     
-    res.json({
-      success: true,
-      url: `http://localhost:5000/uploads/convert/${outputFilename}`,
-      filename: outputFilename
+    // Send the converted file directly as a download response
+    const mimeTypes: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+      gif: 'image/gif',
+      avif: 'image/avif',
+      tiff: 'image/tiff',
+    };
+    
+    res.set({
+      'Content-Type': mimeTypes[targetFormat] || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${outputFilename}"`,
+      'Content-Length': outputBuffer.length,
     });
+    res.send(outputBuffer);
   } catch (err) {
     console.error('Image convert error:', err);
     res.status(500).json({ error: 'Failed to convert image' });
@@ -92,14 +93,18 @@ router.post('/document', upload.single('file'), async (req: any, res: any) => {
       });
     }
     
-    const inputPath = req.file.path;
+    // Write to temp directory for CloudConvert upload (Vercel allows /tmp writes)
+    const tmpDir = os.tmpdir();
+    const tmpFilePath = path.join(tmpDir, `${Date.now()}-${req.file.originalname}`);
+    fs.writeFileSync(tmpFilePath, req.file.buffer);
+    
     const originalName = req.file.originalname;
     
     // Step 1: Create an import/upload task
     const importTask = await cloudConvert.tasks.create('import/upload');
     
     // Step 2: Upload the file to the import task
-    const inputStream = fs.createReadStream(inputPath);
+    const inputStream = fs.createReadStream(tmpFilePath);
     await cloudConvert.tasks.upload(importTask, inputStream, originalName);
     
     // Step 3: Create a convert task that depends on the import task
@@ -125,10 +130,8 @@ router.post('/document', upload.single('file'), async (req: any, res: any) => {
       throw new Error('Conversion completed but no output file was generated.');
     }
     
-    // Clean up input
-    if (fs.existsSync(inputPath)) {
-      fs.unlinkSync(inputPath);
-    }
+    // Clean up temp file
+    try { fs.unlinkSync(tmpFilePath); } catch (e) { /* ignore */ }
     
     res.json({
       success: true,
