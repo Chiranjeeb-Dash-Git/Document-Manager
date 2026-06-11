@@ -9,17 +9,21 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       const res = await api.post('/auth/login', { email, password });
       login(res.data.token, res.data.user);
       navigate('/');
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, 'Login failed'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -67,11 +71,16 @@ export default function Login() {
           </div>
           <motion.button 
             type="submit" 
-            className="cin-submit-btn"
-            whileHover={{ scale: 1.02, boxShadow: '0 0 20px rgba(139, 92, 246, 0.4)' }}
-            whileTap={{ scale: 0.98 }}
+            className="cin-submit-btn flex items-center justify-center gap-2"
+            disabled={isSubmitting}
+            whileHover={{ scale: isSubmitting ? 1 : 1.02, boxShadow: isSubmitting ? 'none' : '0 0 20px rgba(139, 92, 246, 0.4)' }}
+            whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
+            style={{ opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? 'wait' : 'pointer' }}
           >
-            Sign In
+            {isSubmitting ? (
+              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : null}
+            {isSubmitting ? 'Signing In...' : 'Sign In'}
           </motion.button>
         </form>
         <p className="cin-auth-footer">

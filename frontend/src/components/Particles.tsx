@@ -79,7 +79,7 @@ export default function Particles({ count = 120 }: ParticlesProps) {
             height: `${p.size}px`,
             borderRadius: p.isSquare ? '2px' : '50%',
             background: p.color,
-            boxShadow: `0 0 ${p.glowSize}px ${p.color}`,
+            // Removed heavy box-shadow for buttery smooth performance
           }}
         />
       ))}

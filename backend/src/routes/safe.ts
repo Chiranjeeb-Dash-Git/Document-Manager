@@ -4,25 +4,16 @@ import path from 'path';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import { db } from '../firebase';
+import { db, bucket } from '../firebase';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `safe-${Date.now()}-${safeName}`);
-  },
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
-const upload = multer({ storage });
 
 const authMiddleware = (req: any, res: any, next: any) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -109,10 +100,18 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `safe-${Date.now()}-${safeName}`;
+    const fileRef = bucket.file(filename);
+
+    await fileRef.save(req.file.buffer, {
+      metadata: { contentType: req.file.mimetype }
+    });
     
     const docData = {
       filename: req.file.originalname,
-      filepath: req.file.filename,
+      filepath: filename,
       mimetype: req.file.mimetype,
       size: req.file.size,
       ownerId: req.userId,
@@ -134,7 +133,28 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
       .where('ownerId', '==', req.userId)
       .get();
       
-    const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const items = await Promise.all(snapshot.docs.map(async doc => {
+      const data = doc.data() as any;
+      const protocol = req.protocol;
+      const host = req.get('host') || 'localhost:5000';
+      const localUrl = `${protocol}://${host}/uploads/${encodeURIComponent(data.filepath)}`;
+      
+      let fileUrl = localUrl;
+      try {
+        const fileRef = bucket.file(data.filepath);
+        const [exists] = await fileRef.exists();
+        if (exists) {
+          const [url] = await fileRef.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
+          });
+          fileUrl = url;
+        }
+      } catch (err) {
+        // Keep local URL fallback
+      }
+      return { id: doc.id, ...data, fileUrl };
+    }));
     items.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     res.json(items);
@@ -155,10 +175,14 @@ router.delete('/:id', authMiddleware, async (req: any, res: any) => {
     
     if (document.ownerId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
 
-    // Delete the file from disk
-    const filePath = path.join(process.cwd(), 'uploads', document.filepath);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // Delete the file from bucket or disk
+    try {
+      await bucket.file(document.filepath).delete();
+    } catch (e) {
+      const filePath = path.join(process.cwd(), 'uploads', document.filepath);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
 
     // Delete the DB record

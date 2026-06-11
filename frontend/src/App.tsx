@@ -15,6 +15,7 @@ import Layout from './components/Layout';
 import Splash from './components/Splash';
 import SafeFolder from './components/SafeFolder';
 import Particles from './components/Particles';
+import MobileSignPad from './components/MobileSignPad';
 
 function PrivateRoute({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -32,7 +33,7 @@ function App() {
   };
 
   // Check if current path is a public signing route — these bypass splash entirely
-  const isPublicRoute = window.location.pathname.startsWith('/sign/public/') || window.location.pathname.startsWith('/doc/') || window.location.pathname.startsWith('/view/');
+  const isPublicRoute = window.location.pathname.startsWith('/sign/public/') || window.location.pathname.startsWith('/doc/') || window.location.pathname.startsWith('/view/') || window.location.pathname.startsWith('/mobile-sign/');
 
   return (
     <>
@@ -44,6 +45,7 @@ function App() {
           <Route path="/sign/public/:token" element={<PublicSignDocument />} />
           <Route path="/doc/:token" element={<PublicDocumentSign />} />
           <Route path="/view/:token" element={<PublicDocumentView />} />
+          <Route path="/mobile-sign/:sessionId" element={<MobileSignPad />} />
         </Routes>
       ) : (
         <>

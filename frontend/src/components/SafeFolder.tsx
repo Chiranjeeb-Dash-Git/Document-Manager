@@ -9,7 +9,9 @@ interface SafeItem {
   filepath: string;
   mimetype: string;
   size: number;
+  ownerId: string;
   createdAt: string;
+  fileUrl?: string;
 }
 
 export default function SafeFolder() {
@@ -109,7 +111,7 @@ export default function SafeFolder() {
 
   const handleDownload = async (item: SafeItem) => {
     try {
-      const url = `${API_BASE}/uploads/${item.filepath}`;
+      const url = item.fileUrl || `${API_BASE}/uploads/${item.filepath}`;
       const response = await fetch(url);
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
@@ -252,7 +254,7 @@ export default function SafeFolder() {
             const isVideo = item.mimetype.startsWith('video/');
             const isAudio = item.mimetype.startsWith('audio/');
             const isPdf = item.mimetype === 'application/pdf';
-            const fileUrl = `${API_BASE}/uploads/${item.filepath}`;
+            const fileUrl = item.fileUrl || `${API_BASE}/uploads/${item.filepath}`;
 
             // Text file extensions that browsers can display as plain text
             const textExts = ['.txt', '.csv', '.json', '.xml', '.html', '.css', '.js', '.ts', '.md', '.log', '.yml', '.yaml', '.ini', '.cfg', '.env', '.sh', '.bat', '.py', '.java', '.c', '.cpp', '.h', '.rb', '.go', '.rs', '.sql', '.rtf'];

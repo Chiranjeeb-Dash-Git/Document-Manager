@@ -16,7 +16,8 @@ try {
       }
       
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+        credential: admin.credential.cert(serviceAccount),
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'document-manager-fa2e2.firebasestorage.app'
       });
       console.log('Firebase Admin initialized successfully.');
     } else {
@@ -28,3 +29,4 @@ try {
 }
 
 export const db = admin.firestore();
+export const bucket = admin.storage().bucket();

@@ -6,10 +6,11 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import '../fonts.css';
 import { DndContext, useDraggable } from '@dnd-kit/core';
-import { FileSignature, CheckCircle, Upload, Type, X } from 'lucide-react';
+import { FileSignature, CheckCircle, Upload, Type, X, Smartphone } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import heic2any from 'heic2any';
 import { motion } from 'framer-motion';
+import { QRCodeSVG } from 'qrcode.react';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -217,7 +218,7 @@ export default function PublicDocumentSign() {
   const [error, setError] = useState('');
   const [isAgreed, setIsAgreed] = useState(false);
 
-  const [mode, setMode] = useState<'type' | 'upload'>('upload');
+  const [mode, setMode] = useState<'type' | 'upload' | 'mobile'>('upload');
 
   const [sigPos, setSigPos] = useState({ x: 80, y: 80 });
   const [signatureText, setSignatureText] = useState('Your Signature');
@@ -230,6 +231,13 @@ export default function PublicDocumentSign() {
   const [sigScale, setSigScale] = useState(1);
   const [sigRotate, setSigRotate] = useState(0);
 
+  // Mobile QR session state
+  const [mobileSessionId, setMobileSessionId] = useState<string | null>(null);
+  const [mobileUrl, setMobileUrl] = useState<string | null>(null);
+  const [mobilePolling, setMobilePolling] = useState(false);
+  const [mobileReceived, setMobileReceived] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [pdfW, setPdfW] = useState(595);
   const [pdfH, setPdfH] = useState(842);
 
@@ -238,6 +246,60 @@ export default function PublicDocumentSign() {
 
   const scale = PDF_DISPLAY_WIDTH / pdfW;
   const fontSizePx = FONT_SIZE_PT * scale;
+
+  // Start mobile session when mobile tab is selected
+  const startMobileSession = async () => {
+    if (mobileSessionId) return; // Already started
+    try {
+      const resp = await fetch(`/api/mobile-sig/create`, { method: 'POST' });
+      const { sessionId, localIp } = await resp.json();
+      setMobileSessionId(sessionId);
+      const origin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? `http://${localIp}:${window.location.port || '5173'}` 
+        : window.location.origin;
+      const url = `${origin}/mobile-sign/${sessionId}`;
+      setMobileUrl(url);
+      setMobilePolling(true);
+      setMobileReceived(false);
+    } catch (e) {
+      console.error('Failed to create mobile session', e);
+    }
+  };
+
+  // Poll the relay session for a submitted signature
+  useEffect(() => {
+    if (!mobilePolling || !mobileSessionId) return;
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/mobile-sig/${mobileSessionId}/poll`);
+        const data = await resp.json();
+        if (data.ready && data.signature) {
+          clearInterval(pollIntervalRef.current!);
+          setMobilePolling(false);
+          setMobileReceived(true);
+          setUploadedImage(data.signature);
+          // Auto-detect dimensions
+          const img = new Image();
+          img.onload = () => {
+            const maxW = 250;
+            const aspect = img.naturalWidth / img.naturalHeight;
+            const w = Math.min(img.naturalWidth, maxW);
+            setUploadDisplayW(w);
+            setUploadDisplayH(w / aspect);
+            setSigScale(1);
+          };
+          img.src = data.signature;
+          setMode('upload'); // Switch to upload mode to show the received signature on canvas
+        }
+      } catch (e) { /* ignore */ }
+    }, 2500);
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, [mobilePolling, mobileSessionId]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, []);
 
   const fontOptions = [
     { value: 'Dancing Script', label: 'Dancing Script' },
@@ -251,7 +313,7 @@ export default function PublicDocumentSign() {
   useEffect(() => {
     const fetchDoc = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/public/document/${token}`);
+        const res = await axios.get(`/api/public/document/${token}`);
         setDoc(res.data);
       } catch (err) {
         console.error(err);
@@ -365,7 +427,7 @@ export default function PublicDocumentSign() {
         pdfY = pdfH - (screenBottomY / scale);
       }
 
-      await axios.post(`http://localhost:5000/api/public/document/${token}/sign`, {
+      await axios.post(`/api/public/document/${token}/sign`, {
         x: Math.max(0, pdfX),
         y: Math.max(0, pdfY),
         width: pdfImageWidth,
@@ -527,6 +589,14 @@ export default function PublicDocumentSign() {
               }`}
             >
               <Type className="w-4 h-4" /> Type
+            </button>
+            <button
+              onClick={() => { setMode('mobile'); startMobileSession(); }}
+              className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                mode === 'mobile' ? 'border-indigo-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Smartphone className="w-4 h-4" /> Mobile
             </button>
           </div>
 
@@ -708,6 +778,66 @@ export default function PublicDocumentSign() {
             </motion.div>
           )}
 
+          {/* ─── MOBILE MODE ─── */}
+          {mode === 'mobile' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center gap-5 pt-2">
+              {mobileReceived ? (
+                <div className="w-full flex flex-col items-center gap-4">
+                  <div style={{
+                    width: 60, height: 60, borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 0 30px rgba(34,197,94,0.35)'
+                  }}>
+                    <CheckCircle className="w-8 h-8 text-white" />
+                  </div>
+                  <p className="text-green-400 font-semibold text-sm text-center">Signature received from mobile!</p>
+                  <div className="bg-white/90 rounded-xl p-3 w-full flex justify-center">
+                    {uploadedImage && <img src={uploadedImage} alt="Mobile signature" className="max-h-20 object-contain" />}
+                  </div>
+                  <p className="text-slate-400 text-xs text-center">Drag it into position on the document, then click Finish & Sign.</p>
+                </div>
+              ) : mobileUrl ? (
+                <div className="flex flex-col items-center gap-4 w-full">
+                  <div className="bg-white p-4 rounded-2xl shadow-[0_0_40px_rgba(139,92,246,0.25)] border-2 border-indigo-500/30">
+                    <QRCodeSVG
+                      value={mobileUrl}
+                      size={180}
+                      bgColor="#ffffff"
+                      fgColor="#1e1b4b"
+                      level="M"
+                    />
+                  </div>
+                  <div className="flex flex-col items-center gap-1.5">
+                    <p className="text-sm font-semibold text-slate-200">Scan with your phone</p>
+                    <p className="text-xs text-slate-400 text-center max-w-[210px]">
+                      Open the camera app and point it at this QR code to draw your signature on your mobile device.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 w-full">
+                    <div className="flex-1 h-px bg-slate-800" />
+                    <span className="text-xs text-slate-500">or copy link</span>
+                    <div className="flex-1 h-px bg-slate-800" />
+                  </div>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(mobileUrl); }}
+                    className="w-full py-2.5 text-xs text-slate-400 border border-slate-700 rounded-xl hover:bg-slate-800 transition-colors truncate px-3"
+                  >
+                    📋 {mobileUrl}
+                  </button>
+                  <div className="flex items-center gap-2 text-indigo-400 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                    Waiting for mobile signature…
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
+                </div>
+              )}
+            </motion.div>
+          )}
+
           <div className="bg-indigo-500/10 p-4 rounded-xl border border-indigo-500/20 text-xs text-indigo-200 mt-2">
             <p className="flex items-center gap-1.5 font-semibold mb-2 text-indigo-300 text-sm">
               <CheckCircle className="w-4 h-4" /> How to sign
@@ -717,6 +847,12 @@ export default function PublicDocumentSign() {
                 <>
                   <li>Type your name above</li>
                   <li>Pick a handwriting style &amp; color</li>
+                </>
+              ) : mode === 'mobile' ? (
+                <>
+                  <li>Scan the QR code with your phone</li>
+                  <li>Draw your signature on the touch screen</li>
+                  <li>Tap &quot;Use This Signature&quot; on mobile</li>
                 </>
               ) : (
                 <>
@@ -761,7 +897,7 @@ export default function PublicDocumentSign() {
             <DndContext onDragEnd={handleDragEnd}>
               <div style={{ position: 'relative', width: PDF_DISPLAY_WIDTH, height: Math.ceil(pdfH * scale), flexShrink: 0 }} className="signing-pdf-page shadow-2xl bg-white rounded-md ring-1 ring-slate-800">
                 <PdfDocument
-                  file={`http://localhost:5000/uploads/${encodeURIComponent(doc.filepath)}`}
+                  file={doc.fileUrl || `/uploads/${encodeURIComponent(doc.filepath)}`}
                   onLoadSuccess={({ numPages }) => setNumPages(numPages)}
                 >
                   <Page

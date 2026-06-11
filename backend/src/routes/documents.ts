@@ -5,26 +5,90 @@ import { PDFDocument, rgb, degrees } from 'pdf-lib';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import sgMail from '@sendgrid/mail';
-import { db } from '../firebase';
+import nodemailer from 'nodemailer';
+import { db, bucket } from '../firebase';
 import crypto from 'crypto';
+
+// Helper: send email via SendGrid or Nodemailer fallback
+async function sendSigningEmail(toEmail: string, signLink: string, filename: string): Promise<boolean> {
+  // Try SendGrid first
+  if (process.env.SENDGRID_API_KEY) {
+    try {
+      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+      if (process.env.SENDGRID_TEMPLATE_ID) {
+        await sgMail.send({
+          to: toEmail,
+          from: process.env.EMAIL_USER || 'noreply@example.com',
+          templateId: process.env.SENDGRID_TEMPLATE_ID,
+          dynamicTemplateData: { signLink, filename },
+        });
+      } else {
+        await sgMail.send({
+          to: toEmail,
+          from: process.env.EMAIL_USER || 'noreply@example.com',
+          subject: `You've been requested to sign: ${filename}`,
+          html: buildEmailHtml(signLink, filename),
+        });
+      }
+      console.log(`Email sent to ${toEmail} via SendGrid`);
+      return true;
+    } catch (err: any) {
+      console.error(`SendGrid failed for ${toEmail}:`, err?.response?.body || err.message);
+    }
+  }
+
+  // Fallback: Nodemailer with Gmail App Password
+  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      });
+      await transporter.sendMail({
+        from: `"Document Manager" <${process.env.EMAIL_USER}>`,
+        to: toEmail,
+        subject: `You've been requested to sign: ${filename}`,
+        html: buildEmailHtml(signLink, filename),
+      });
+      console.log(`Email sent to ${toEmail} via Nodemailer`);
+      return true;
+    } catch (err: any) {
+      console.error(`Nodemailer failed for ${toEmail}:`, err.message);
+    }
+  }
+
+  console.warn(`No email provider succeeded for ${toEmail}`);
+  return false;
+}
+
+function buildEmailHtml(signLink: string, filename: string): string {
+  return `
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #0f172a; border-radius: 16px; color: #e2e8f0;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #a78bfa; margin: 0; font-size: 22px;">📝 Signature Requested</h1>
+      </div>
+      <p style="font-size: 15px; line-height: 1.6; color: #cbd5e1;">You have been asked to sign the document:</p>
+      <div style="background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.25); border-radius: 10px; padding: 14px 18px; margin: 16px 0; text-align: center;">
+        <strong style="color: #e2e8f0; font-size: 16px;">${filename}</strong>
+      </div>
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${signLink}" style="display: inline-block; padding: 14px 36px; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: #fff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px; letter-spacing: 0.3px;">Open &amp; Sign Document</a>
+      </div>
+      <p style="font-size: 13px; color: #64748b; text-align: center;">If the button doesn't work, copy and paste this link:<br/>
+        <a href="${signLink}" style="color: #818cf8; word-break: break-all;">${signLink}</a>
+      </p>
+    </div>
+  `;
+}
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${Date.now()}-${safeName}`);
-  },
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit for production
 });
-const upload = multer({ storage });
 
 const authMiddleware = (req: any, res: any, next: any) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -44,9 +108,17 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
+    const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `${Date.now()}-${safeName}`;
+    const fileRef = bucket.file(filename);
+
+    await fileRef.save(req.file.buffer, {
+      metadata: { contentType: req.file.mimetype }
+    });
+
     const docData = {
       filename: req.file.originalname,
-      filepath: req.file.filename,
+      filepath: filename,
       status: 'Pending',
       ownerId: req.userId,
       isPublic: false,
@@ -59,19 +131,50 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     
     res.status(201).json({ id: docRef.id, ...docData });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
 
 router.get('/', authMiddleware, async (req: any, res: any) => {
   try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+
     const snapshot = await db.collection('documents')
       .where('ownerId', '==', req.userId)
       .get();
       
-    const documents = await Promise.all(snapshot.docs.map(async doc => {
-      const data = doc.data() as any;
-      // Fetch signatures
+    // Sort in memory to avoid requiring a composite index right now
+    const allDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+    allDocs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    // Pagination slice
+    const startIndex = (page - 1) * limit;
+    const paginatedDocs = allDocs.slice(startIndex, startIndex + limit);
+      
+    const documents = await Promise.all(paginatedDocs.map(async doc => {
+      // Build full local URL as fallback for files uploaded before cloud storage migration
+      const protocol = req.protocol;
+      const host = req.get('host') || 'localhost:5000';
+      const localUrl = `${protocol}://${host}/uploads/${encodeURIComponent(doc.filepath)}`;
+      
+      let fileUrl = localUrl;
+      try {
+        const fileRef = bucket.file(doc.filepath);
+        const [exists] = await fileRef.exists();
+        if (exists) {
+          const [url] = await fileRef.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
+          });
+          fileUrl = url;
+        }
+      } catch (err) {
+        // Keep local URL fallback
+      }
+
+      // Fetch signatures only for the paginated docs (limits N+1 queries)
       const sigSnapshot = await db.collection('signatureHistory')
         .where('documentId', '==', doc.id)
         .get();
@@ -86,12 +189,15 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
           // Exclude base64 image to prevent huge payload
         };
       });
-      return { id: doc.id, ...data, signatures };
+      return { ...doc, signatures, fileUrl };
     }));
     
-    documents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    
-    res.json(documents);
+    res.json({
+      documents,
+      total: allDocs.length,
+      page,
+      totalPages: Math.ceil(allDocs.length / limit)
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong' });
@@ -105,7 +211,26 @@ router.get('/:id', authMiddleware, async (req: any, res: any) => {
     
     if (!docSnap.exists) return res.status(404).json({ error: 'Document not found' });
     
-    const data = docSnap.data();
+    const data = docSnap.data() as any;
+    
+    const protocol = req.protocol;
+    const host = req.get('host') || 'localhost:5000';
+    const localUrl = `${protocol}://${host}/uploads/${encodeURIComponent(data.filepath)}`;
+    
+    let fileUrl = localUrl;
+    try {
+      const fileRef = bucket.file(data.filepath);
+      const [exists] = await fileRef.exists();
+      if (exists) {
+        const [url] = await fileRef.getSignedUrl({
+          action: 'read',
+          expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
+        });
+        fileUrl = url;
+      }
+    } catch (err) {
+      // Keep local URL fallback
+    }
     
     // Fetch signatures
     const sigSnapshot = await db.collection('signatureHistory')
@@ -113,7 +238,7 @@ router.get('/:id', authMiddleware, async (req: any, res: any) => {
       .get();
     const signatures = sigSnapshot.docs.map(s => ({ id: s.id, ...s.data() }));
     
-    res.json({ id: docRef.id, ...data, signatures });
+    res.json({ id: docRef.id, ...data, signatures, fileUrl });
   } catch (err) {
     res.status(500).json({ error: 'Something went wrong' });
   }
@@ -126,8 +251,17 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
     if (!docSnap.exists) return res.status(404).json({ error: 'Document not found' });
     const document = docSnap.data() as any;
 
-    const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
-    const existingPdfBytes = fs.readFileSync(pdfPath);
+    let existingPdfBytes: Buffer;
+    const fileRef = bucket.file(document.filepath);
+    const [exists] = await fileRef.exists();
+    if (exists) {
+      const [buffer] = await fileRef.download();
+      existingPdfBytes = buffer;
+    } else {
+      const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
+      existingPdfBytes = fs.readFileSync(pdfPath);
+    }
+
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
     
     const { x, y, width, height, pageNum, signatureImage, rotation } = req.body;
@@ -152,7 +286,13 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
       });
 
       const pdfBytes = await pdfDoc.save();
-      fs.writeFileSync(pdfPath, pdfBytes);
+      
+      if (exists) {
+        await fileRef.save(pdfBytes, { metadata: { contentType: 'application/pdf' }});
+      } else {
+        const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
+        fs.writeFileSync(pdfPath, pdfBytes);
+      }
     }
 
     await docRef.update({
@@ -199,9 +339,13 @@ router.delete('/:id', authMiddleware, async (req: any, res: any) => {
     // Delete the DB record
     await docRef.delete();
 
-    // Delete the file from disk
-    const filePath = path.join(process.cwd(), 'uploads', document.filepath);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    // Delete the file from bucket or disk
+    try {
+      await bucket.file(document.filepath).delete();
+    } catch (e) {
+      const filePath = path.join(process.cwd(), 'uploads', document.filepath);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -229,41 +373,26 @@ router.post('/:id/requests', authMiddleware, async (req: any, res: any) => {
     const requests = [];
     for (const email of emails) {
       const token = crypto.randomUUID();
-      const reqData = {
+      const reqData: any = {
         documentId: docRef.id,
         email,
         token,
         status: 'Pending',
+        emailSent: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       const reqRef = await db.collection('signatureRequests').add(reqData);
-      requests.push({ id: reqRef.id, ...reqData });
-    }
 
-    if (process.env.SENDGRID_API_KEY) {
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      
-      for (const r of requests) {
-        const signLink = `http://localhost:5173/sign/public/${r.token}`;
-        const msg = {
-          to: r.email,
-          from: process.env.EMAIL_USER || 'chiranjeeb.email@gmail.com',
-          templateId: process.env.SENDGRID_TEMPLATE_ID || 'd-c64d13a1757d41ea92a31ca769b27d61',
-          dynamicTemplateData: {
-            signLink: signLink,
-            filename: document.filename
-          }
-        };
-        try {
-          await sgMail.send(msg);
-          console.log(`Email successfully sent to ${r.email} via SendGrid Template`);
-        } catch (error: any) {
-          console.error('Failed to send email to', r.email);
-        }
+      // Attempt to send email
+      const signLink = `http://localhost:5173/sign/public/${token}`;
+      const sent = await sendSigningEmail(email, signLink, document.filename);
+      if (sent) {
+        reqData.emailSent = true;
+        await reqRef.update({ emailSent: true });
       }
-    } else {
-      console.warn('SENDGRID_API_KEY not configured. Emails were not sent.');
+
+      requests.push({ id: reqRef.id, ...reqData });
     }
 
     res.status(201).json(requests);
@@ -293,6 +422,35 @@ router.get('/:id/requests', authMiddleware, async (req: any, res: any) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch signature requests' });
+  }
+});
+
+// Send (or resend) email for a specific signer request
+router.post('/:id/requests/:requestId/send-email', authMiddleware, async (req: any, res: any) => {
+  try {
+    const docRef = db.collection('documents').doc(req.params.id);
+    const docSnap = await docRef.get();
+    if (!docSnap.exists) return res.status(404).json({ error: 'Document not found' });
+    const document = docSnap.data() as any;
+    if (document.ownerId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    const reqRef = db.collection('signatureRequests').doc(req.params.requestId);
+    const reqSnap = await reqRef.get();
+    if (!reqSnap.exists) return res.status(404).json({ error: 'Request not found' });
+    const reqData = reqSnap.data() as any;
+
+    const signLink = `http://localhost:5173/sign/public/${reqData.token}`;
+    const sent = await sendSigningEmail(reqData.email, signLink, document.filename);
+
+    if (sent) {
+      await reqRef.update({ emailSent: true, updatedAt: new Date().toISOString() });
+      return res.json({ success: true, message: `Email sent to ${reqData.email}` });
+    } else {
+      return res.status(500).json({ error: `Failed to send email to ${reqData.email}. Check your EMAIL_USER/EMAIL_PASS or SENDGRID_API_KEY in .env` });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to send email' });
   }
 });
 

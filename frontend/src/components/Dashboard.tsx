@@ -1,16 +1,10 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import api, { API_BASE } from '../api';
-import { Document as PdfDocument, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, CheckCircle, Clock, ChevronRight, Eye, Trash2, Download, X, ChevronLeft, ChevronRight as ChevronRightIcon, AlertTriangle, Users, Copy, Link2 } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Clock, ChevronRight, Eye, Trash2, Download, X, ChevronLeft, ChevronRight as ChevronRightIcon, AlertTriangle, Users, Copy, Link2, Mail, Send } from 'lucide-react';
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString();
+const PDFViewer = lazy(() => import('./PDFViewer'));
 
 interface Document {
   id: string;
@@ -19,6 +13,7 @@ interface Document {
   status: string;
   createdAt: string;
   signatures: any[];
+  fileUrl?: string;
 }
 
 // removed variants
@@ -26,11 +21,11 @@ interface Document {
 export default function Dashboard() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
   // PDF Viewer modal
   const [viewingDoc, setViewingDoc] = useState<Document | null>(null);
-  const [numPages, setNumPages] = useState<number | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
 
   // Delete confirmation modal
   const [deletingDoc, setDeletingDoc] = useState<Document | null>(null);
@@ -51,17 +46,30 @@ export default function Dashboard() {
   // Signature/Govt ID Lightbox
   const [viewingMedia, setViewingMedia] = useState<string | null>(null);
 
-  const fetchDocuments = async () => {
+  // Email sending state
+  const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
+  const [emailFeedback, setEmailFeedback] = useState<{ id: string; success: boolean; message: string } | null>(null);
+
+  const fetchDocuments = async (pageNum = 1, append = false) => {
     try {
-      const res = await api.get('/documents');
-      setDocuments(res.data);
+      const res = await api.get(`/documents?page=${pageNum}&limit=10`);
+      if (Array.isArray(res.data)) {
+        // Fallback for old API just in case
+        setDocuments(res.data);
+        setHasMore(false);
+      } else {
+        const newDocs = res.data.documents;
+        setDocuments(prev => append ? [...prev, ...newDocs] : newDocs);
+        setHasMore(pageNum < res.data.totalPages);
+        setPage(pageNum);
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
   useEffect(() => {
-    fetchDocuments();
+    fetchDocuments(1, false);
   }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,7 +82,7 @@ export default function Dashboard() {
       await api.post('/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      fetchDocuments();
+      fetchDocuments(1, false);
     } catch (err) {
       console.error(err);
     } finally {
@@ -98,8 +106,6 @@ export default function Dashboard() {
 
   const openViewer = (doc: Document) => {
     setViewingDoc(doc);
-    setPageNumber(1);
-    setNumPages(null);
   };
 
   const closeViewer = () => setViewingDoc(null);
@@ -137,6 +143,24 @@ export default function Dashboard() {
       alert('Failed to send requests');
     } finally {
       setSendingRequests(false);
+    }
+  };
+
+  const sendEmailToSigner = async (requestId: string, docId: string) => {
+    setSendingEmailId(requestId);
+    setEmailFeedback(null);
+    try {
+      const res = await api.post(`/documents/${docId}/requests/${requestId}/send-email`);
+      setEmailFeedback({ id: requestId, success: true, message: res.data.message || 'Email sent!' });
+      // Refresh the requests list to update emailSent status
+      const updated = await api.get(`/documents/${docId}/requests`);
+      setRequests(updated.data);
+    } catch (err: unknown) {
+      const msg = (err as any)?.response?.data?.error || 'Failed to send email';
+      setEmailFeedback({ id: requestId, success: false, message: msg });
+    } finally {
+      setSendingEmailId(null);
+      setTimeout(() => setEmailFeedback(null), 4000);
     }
   };
 
@@ -269,7 +293,7 @@ export default function Dashboard() {
 
                   {doc.status === 'Signed' && (
                     <a
-                      href={`${API_BASE}/uploads/${encodeURIComponent(doc.filepath)}`}
+                      href={doc.fileUrl || `${API_BASE}/uploads/${encodeURIComponent(doc.filepath)}`}
                       download={doc.filename}
                       className="cin-action-btn download"
                     >
@@ -294,6 +318,18 @@ export default function Dashboard() {
                 </div>
               </motion.div>
             ))}
+          </div>
+        )}
+
+        {hasMore && (
+          <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+            <button 
+              className="cin-action-btn"
+              style={{ background: '#334155', border: '1px solid #475569', color: '#e2e8f0', padding: '12px 24px' }}
+              onClick={() => fetchDocuments(page + 1, true)}
+            >
+              Load More
+            </button>
           </div>
         )}
       </div>
@@ -328,7 +364,7 @@ export default function Dashboard() {
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <a
-                    href={`${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`}
+                    href={viewingDoc.fileUrl || `${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`}
                     download={viewingDoc.filename}
                     className="cin-action-btn download"
                   >
@@ -341,30 +377,10 @@ export default function Dashboard() {
               </div>
 
               <div className="cin-pdf-canvas">
-                <PdfDocument
-                  file={`${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`}
-                  onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }}
-                >
-                  <Page
-                    pageNumber={pageNumber}
-                    renderTextLayer={false}
-                    renderAnnotationLayer={false}
-                    width={Math.min(700, window.innerWidth - 80)}
-                  />
-                </PdfDocument>
+                <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading PDF Viewer...</div>}>
+                  <PDFViewer fileUrl={viewingDoc.fileUrl || `${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`} />
+                </Suspense>
               </div>
-
-              {numPages && numPages > 1 && (
-                <div className="cin-pdf-controls">
-                  <button onClick={() => setPageNumber(p => Math.max(1, p - 1))} disabled={pageNumber <= 1}>
-                    <ChevronLeft className="w-5 h-5" />
-                  </button>
-                  <span>Page {pageNumber} of {numPages}</span>
-                  <button onClick={() => setPageNumber(p => Math.min(numPages!, p + 1))} disabled={pageNumber >= numPages}>
-                    <ChevronRightIcon className="w-5 h-5" />
-                  </button>
-                </div>
-              )}
             </motion.div>
           </div>
         )}
@@ -575,25 +591,60 @@ export default function Dashboard() {
 
                   <div className="cin-signer-list">
                     <div className="cin-signer-list-header">Signers &amp; Links</div>
-                    <div style={{ maxHeight: 210, overflowY: 'auto' }}>
+                    <div style={{ maxHeight: 280, overflowY: 'auto' }}>
                       {requests.length === 0 ? (
                         <p style={{ textAlign: 'center', color: '#475569', padding: '1rem', fontStyle: 'italic', fontSize: '0.85rem' }}>No individual signers added yet.</p>
                       ) : (
                         requests.map(req => (
-                          <div key={req.id} className="cin-signer-item">
-                            <div>
-                              <div className="cin-signer-email">{req.email}</div>
-                              <div className={`cin-signer-status ${req.status === 'Signed' ? 'signed' : 'pending-status'}`}>
-                                {req.status === 'Signed' ? '✓ Signed' : '⏳ Pending'}
+                          <div key={req.id} className="cin-signer-item" style={{ flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                              <div>
+                                <div className="cin-signer-email">{req.email}</div>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '3px' }}>
+                                  <span className={`cin-signer-status ${req.status === 'Signed' ? 'signed' : 'pending-status'}`}>
+                                    {req.status === 'Signed' ? '✓ Signed' : '⏳ Pending'}
+                                  </span>
+                                  <span style={{ fontSize: '0.7rem', color: req.emailSent ? '#34d399' : '#f97316', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <Mail className="w-3 h-3" />
+                                    {req.emailSent ? 'Email sent' : 'Not emailed'}
+                                  </span>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                                {req.status !== 'Signed' && (
+                                  <>
+                                    <button
+                                      onClick={() => sendEmailToSigner(req.id, managingDoc!.id)}
+                                      disabled={sendingEmailId === req.id}
+                                      className="cin-btn-copy-link"
+                                      style={{ borderColor: '#8b5cf6', color: '#a78bfa', gap: '4px' }}
+                                      title={req.emailSent ? 'Resend email' : 'Send signing link via email'}
+                                    >
+                                      <Send className="w-3.5 h-3.5" />
+                                      {sendingEmailId === req.id ? 'Sending...' : req.emailSent ? 'Resend' : 'Send Email'}
+                                    </button>
+                                    <button
+                                      onClick={() => { navigator.clipboard.writeText(`http://localhost:5173/sign/public/${req.token}`); alert(`Link for ${req.email} copied!`); }}
+                                      className="cin-btn-copy-link"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" /> Copy Link
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </div>
-                            {req.status !== 'Signed' && (
-                              <button
-                                onClick={() => { navigator.clipboard.writeText(`http://localhost:5173/sign/public/${req.token}`); alert(`Link for ${req.email} copied! Share it with them.`); }}
-                                className="cin-btn-copy-link"
-                              >
-                                <Copy className="w-3.5 h-3.5" /> Copy Link
-                              </button>
+                            {emailFeedback && emailFeedback.id === req.id && (
+                              <div style={{
+                                fontSize: '0.75rem',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                width: '100%',
+                                background: emailFeedback.success ? 'rgba(52,211,153,0.1)' : 'rgba(239,68,68,0.1)',
+                                border: `1px solid ${emailFeedback.success ? 'rgba(52,211,153,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                                color: emailFeedback.success ? '#34d399' : '#f87171',
+                              }}>
+                                {emailFeedback.message}
+                              </div>
                             )}
                           </div>
                         ))

@@ -140,7 +140,7 @@ export default function PublicDocumentView() {
   useEffect(() => {
     const fetchDoc = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/public/document/${token}/view`);
+        const res = await axios.get(`/api/public/document/${token}/view`);
         setDocData(res.data);
       } catch (err: any) {
         console.error(err);
@@ -177,7 +177,7 @@ export default function PublicDocumentView() {
     );
   }
 
-  const fileUrl = `http://localhost:5000/uploads/${encodeURIComponent(docData.filepath)}`;
+  const fileUrl = `/uploads/${encodeURIComponent(docData.filepath)}`;
   const sigCount = docData.signatures?.length || 0;
 
   return (
