@@ -9,11 +9,7 @@ export default defineConfig({
     cssCodeSplit: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'framer-motion': ['framer-motion'],
-          'react-pdf': ['react-pdf', 'pdfjs-dist'],
-        }
+        // Default Vite chunking is sufficient
       }
     }
   },

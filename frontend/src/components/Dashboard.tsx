@@ -2,7 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import api, { API_BASE } from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileText, CheckCircle, Clock, ChevronRight, Eye, Trash2, Download, X, ChevronLeft, ChevronRight as ChevronRightIcon, AlertTriangle, Users, Copy, Link2, Mail, Send } from 'lucide-react';
+import { Upload, FileText, CheckCircle, Clock, ChevronRight, Eye, Trash2, Download, X, AlertTriangle, Users, Copy, Link2, Mail, Send } from 'lucide-react';
 
 const PDFViewer = lazy(() => import('./PDFViewer'));
 
