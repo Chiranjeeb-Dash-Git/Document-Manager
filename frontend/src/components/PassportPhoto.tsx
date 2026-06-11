@@ -46,13 +46,43 @@ function hexToRgb(hex: string) {
   return { r, g, b };
 }
 
+// ─── Set DPI Metadata in JPEG Base64 ─────────────────────────────────────────
+function setJpegDpi(dataUrl: string, dpi: number): string {
+  const prefix = "data:image/jpeg;base64,";
+  if (!dataUrl.startsWith(prefix)) return dataUrl;
+
+  const b64 = dataUrl.substring(prefix.length);
+  const binStr = atob(b64);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) {
+    bytes[i] = binStr.charCodeAt(i);
+  }
+
+  if (bytes[6] === 0x4A && bytes[7] === 0x46 && bytes[8] === 0x49 && bytes[9] === 0x46 && bytes[10] === 0x00) {
+    bytes[13] = 1; 
+    bytes[14] = Math.floor(dpi / 256);
+    bytes[15] = dpi % 256;
+    bytes[16] = Math.floor(dpi / 256);
+    bytes[17] = dpi % 256;
+  }
+
+  let newBinStr = '';
+  const CHUNK_SIZE = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    newBinStr += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK_SIZE)));
+  }
+
+  return prefix + btoa(newBinStr);
+}
+
 // ─── Compose transparent PNG onto colored background and resize ──────────────
 function composePassportPhoto(
   transparentImg: HTMLImageElement,
   sizeKey: string,
   bgHex: string,
   brightness: number,
-  contrast: number
+  contrast: number,
+  zoom: number
 ): { dataUrl: string; canvas: HTMLCanvasElement } {
   const size = PASSPORT_SIZES[sizeKey];
   const outW = mmToPx(size.w, size.dpi);
@@ -76,14 +106,16 @@ function composePassportPhoto(
   if (srcAR > outAR) {
     drawH = outH;
     drawW = outH * srcAR;
-    drawX = (outW - drawW) / 2;
-    drawY = 0;
   } else {
     drawW = outW;
     drawH = outW / srcAR;
-    drawX = 0;
-    drawY = (outH - drawH) / 2;
   }
+
+  // Apply zoom
+  drawW *= zoom;
+  drawH *= zoom;
+  drawX = (outW - drawW) / 2;
+  drawY = (outH - drawH) / 2;
 
   // Apply brightness/contrast via CSS filter on offscreen canvas
   const offscreen = document.createElement('canvas');
@@ -95,7 +127,8 @@ function composePassportPhoto(
 
   ctx.drawImage(offscreen, drawX, drawY, drawW, drawH);
 
-  return { dataUrl: canvas.toDataURL('image/jpeg', 0.97), canvas };
+  const dataUrl = setJpegDpi(canvas.toDataURL('image/jpeg', 0.97), size.dpi);
+  return { dataUrl, canvas };
 }
 
 // ─── Build 4×6 print sheet ──────────────────────────────────────────────────
@@ -144,7 +177,8 @@ function buildPrintSheet(photoCanvas: HTMLCanvasElement, sizeKey: string) {
     }
   }
 
-  return { url: sheetCanvas.toDataURL('image/jpeg', 0.95), count };
+  const url = setJpegDpi(sheetCanvas.toDataURL('image/jpeg', 0.95), size.dpi);
+  return { url, count };
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────
@@ -251,7 +285,7 @@ export default function PassportPhoto() {
       setComposing(true);
       try {
         const { dataUrl, canvas } = composePassportPhoto(
-          sourceImg, selectedSize, effectiveBg, brightness, contrast
+          sourceImg, selectedSize, effectiveBg, brightness, contrast, zoom
         );
         setProcessedUrl(dataUrl);
         const sheet = buildPrintSheet(canvas, selectedSize);
@@ -264,7 +298,7 @@ export default function PassportPhoto() {
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [transparentImg, originalImg, skippedAI, selectedSize, effectiveBg, brightness, contrast]);
+  }, [transparentImg, originalImg, skippedAI, selectedSize, effectiveBg, brightness, contrast, zoom]);
 
   // ── Download helpers ──────────────────────────────────────────────────────
   const downloadSingle = () => {
@@ -598,8 +632,7 @@ export default function PassportPhoto() {
                       <img
                         src={processedUrl}
                         alt="Passport photo"
-                        className="max-h-[140px] max-w-full object-contain rounded-lg shadow-2xl"
-                        style={{ transform: `scale(${zoom})`, transformOrigin: 'center', transition: 'transform 0.2s' }}
+                        className="max-h-[140px] max-w-full object-contain rounded-lg shadow-2xl transition-transform"
                       />
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => setZoom(z => Math.max(0.5, z - 0.15))} className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"><ZoomOut className="w-3 h-3 text-slate-400" /></button>
