@@ -40,6 +40,9 @@ router.post('/register', async (req, res) => {
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email } });
   } catch (err) {
     console.error('Registration error:', err);
+    if (err instanceof Error && err.message.includes('FIREBASE_SERVICE_ACCOUNT_KEY')) {
+      return res.status(503).json({ error: 'Server is missing Firebase credentials. Contact the administrator.' });
+    }
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
@@ -74,6 +77,9 @@ router.post('/login', async (req, res) => {
     res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
   } catch (err) {
     console.error('Login error:', err);
+    if (err instanceof Error && err.message.includes('FIREBASE_SERVICE_ACCOUNT_KEY')) {
+      return res.status(503).json({ error: 'Server is missing Firebase credentials. Contact the administrator.' });
+    }
     res.status(500).json({ error: 'Something went wrong' });
   }
 });

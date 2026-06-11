@@ -47,7 +47,11 @@ app.use('/api/safe', safeRoutes);
 app.use('/api/mobile-sig', mobileSigRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Backend is running' });
+  res.json({
+    status: 'ok',
+    message: 'Backend is running',
+    firebaseConfigured: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_KEY),
+  });
 });
 
 // Only listen when running locally (not on Vercel)

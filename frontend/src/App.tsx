@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from './context/AuthContext';
@@ -24,8 +24,15 @@ function PrivateRoute({ children }: { children: React.ReactElement }) {
 }
 
 function App() {
+  const { user, loading } = useAuth();
   const [showSplash, setShowSplash] = useState(true);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && user) {
+      setShowSplash(false);
+    }
+  }, [user, loading]);
 
   const handleLogoClick = () => {
     navigate('/');

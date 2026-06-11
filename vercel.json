@@ -1,14 +1,24 @@
 {
-    "experimentalServices": {
-        "frontend": {
-            "root": "frontend",
-            "routePrefix": "/",
-            "framework": "vite"
-        },
-        "backend": {
-            "root": "backend",
-            "routePrefix": "/api",
-            "entrypoint": "src/index.ts"
-        }
+  "buildCommand": "cd frontend && npm install && npm run build && cd ../backend && npm install",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "backend/src/index.ts": {
+      "runtime": "@vercel/node@latest",
+      "maxDuration": 30
     }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/backend/src/index.ts"
+    },
+    {
+      "source": "/uploads/(.*)",
+      "destination": "/backend/src/index.ts"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
