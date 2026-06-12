@@ -899,6 +899,7 @@ export default function PublicDocumentSign() {
                 <PdfDocument
                   file={`${API_BASE}/uploads/${encodeURIComponent(doc.filepath)}`}
                   onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                  onLoadError={(error) => console.error('Failed to load PDF:', error)}
                 >
                   <Page
                     pageNumber={pageNumber}

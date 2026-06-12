@@ -251,6 +251,7 @@ export default function PublicDocumentView() {
                 <PdfDocument
                   file={fileUrl}
                   onLoadSuccess={({ numPages: n }) => setNumPages(n)}
+                  onLoadError={(error) => console.error('Failed to load PDF preview:', error)}
                 >
                   <Page
                     pageNumber={1}
@@ -367,7 +368,10 @@ export default function PublicDocumentView() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="bg-white rounded-2xl overflow-hidden shadow-2xl ring-1 ring-slate-800 w-full max-w-[800px] h-fit">
-                <PdfDocument file={fileUrl}>
+                <PdfDocument 
+                  file={fileUrl}
+                  onLoadError={(error) => console.error('Failed to load full PDF:', error)}
+                >
                   {Array.from(new Array(numPages || 0), (_, index) => (
                     <div key={`zoom_page_${index + 1}`} className="border-b border-slate-200 last:border-b-0">
                       <Page

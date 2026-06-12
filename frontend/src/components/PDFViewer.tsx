@@ -15,12 +15,22 @@ interface PDFViewerProps {
 export default function PDFViewer({ fileUrl }: PDFViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
+  const [error, setError] = useState<Error | null>(null);
+
+  if (error) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center', color: '#ef4444', background: '#fee2e2', borderRadius: '8px' }}>
+        Failed to load PDF: {error.message}
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'relative' }}>
       <PdfDocument
         file={fileUrl}
         onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }}
+        onLoadError={(err) => setError(err)}
         loading={
           <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
             Loading PDF...
