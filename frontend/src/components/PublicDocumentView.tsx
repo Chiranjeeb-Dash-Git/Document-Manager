@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import axios from 'axios';
+import api, { API_BASE } from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, CheckCircle, Clock, ShieldCheck, User, MapPin,
@@ -140,7 +140,7 @@ export default function PublicDocumentView() {
   useEffect(() => {
     const fetchDoc = async () => {
       try {
-        const res = await axios.get(`/api/public/document/${token}/view`);
+        const res = await api.get(`/public/document/${token}/view`);
         setDocData(res.data);
       } catch (err: any) {
         console.error(err);
@@ -177,7 +177,7 @@ export default function PublicDocumentView() {
     );
   }
 
-  const fileUrl = `/uploads/${encodeURIComponent(docData.filepath)}`;
+  const fileUrl = `${API_BASE}/uploads/${encodeURIComponent(docData.filepath)}`;
   const sigCount = docData.signatures?.length || 0;
 
   return (

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Document as PdfDocument, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import api from '../api';
+import api, { API_BASE } from '../api';
 import { DndContext, useDraggable } from '@dnd-kit/core';
 import '../fonts.css';
 import { FileSignature, CheckCircle, Upload, Type, X, Smartphone } from 'lucide-react';
@@ -765,7 +765,7 @@ export default function SignDocument() {
           <DndContext onDragEnd={handleDragEnd}>
             <div style={{ position: 'relative', width: PDF_DISPLAY_WIDTH, height: Math.ceil(pdfH * scale), flexShrink: 0 }} className="signing-pdf-page shadow-2xl bg-white rounded-md ring-1 ring-slate-800">
               <PdfDocument
-                file={doc.fileUrl || `/uploads/${encodeURIComponent(doc.filepath)}`}
+                file={`${API_BASE}/uploads/${encodeURIComponent(doc.filepath)}`}
                 onLoadSuccess={({ numPages }) => setNumPages(numPages)}
               >
                 <Page

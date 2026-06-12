@@ -294,7 +294,7 @@ export default function Dashboard() {
 
                   {doc.status === 'Signed' && (
                     <a
-                      href={doc.fileUrl || `${API_BASE}/uploads/${encodeURIComponent(doc.filepath)}`}
+                      href={`${API_BASE}/uploads/${encodeURIComponent(doc.filepath)}`}
                       download={doc.filename}
                       className="cin-action-btn download"
                     >
@@ -367,7 +367,7 @@ export default function Dashboard() {
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <a
-                    href={viewingDoc.fileUrl || `${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`}
+                    href={`${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`}
                     download={viewingDoc.filename}
                     className="cin-action-btn download"
                   >
@@ -381,7 +381,7 @@ export default function Dashboard() {
 
               <div className="cin-pdf-canvas">
                 <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading PDF Viewer...</div>}>
-                  <PDFViewer fileUrl={viewingDoc.fileUrl || `${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`} />
+                  <PDFViewer fileUrl={`${API_BASE}/uploads/${encodeURIComponent(viewingDoc.filepath)}`} />
                 </Suspense>
               </div>
             </motion.div>
