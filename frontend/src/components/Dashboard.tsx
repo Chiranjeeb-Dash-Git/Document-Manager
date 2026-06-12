@@ -1,4 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import api, { API_BASE } from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -334,8 +335,10 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ── PDF Viewer Modal ── */}
-      <AnimatePresence>
+      {createPortal(
+        <>
+          {/* ── PDF Viewer Modal ── */}
+          <AnimatePresence>
         {viewingDoc && (
           <div className="cin-modal-overlay">
             <motion.div
@@ -698,6 +701,9 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+        </>,
+        document.body
+      )}
     </div>
   );
 }

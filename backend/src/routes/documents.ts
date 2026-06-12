@@ -110,11 +110,24 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     
     const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `${Date.now()}-${safeName}`;
-    const fileRef = bucket.file(filename);
 
-    await fileRef.save(req.file.buffer, {
-      metadata: { contentType: req.file.mimetype }
-    });
+    // Try Firebase Storage first, fall back to local disk
+    let storedInCloud = false;
+    try {
+      const fileRef = bucket.file(filename);
+      await fileRef.save(req.file.buffer, {
+        metadata: { contentType: req.file.mimetype }
+      });
+      storedInCloud = true;
+    } catch (cloudErr: any) {
+      console.warn('Firebase Storage upload failed, saving to local disk:', cloudErr.message || cloudErr);
+      // Save to local uploads/ folder as fallback
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+    }
 
     const docData = {
       filename: req.file.originalname,
@@ -123,6 +136,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
       ownerId: req.userId,
       isPublic: false,
       publicToken: null,
+      storedInCloud,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -154,10 +168,8 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
     const paginatedDocs = allDocs.slice(startIndex, startIndex + limit);
       
     const documents = await Promise.all(paginatedDocs.map(async doc => {
-      // Build full local URL as fallback for files uploaded before cloud storage migration
-      const protocol = req.protocol;
-      const host = req.get('host') || 'localhost:5000';
-      const localUrl = `${protocol}://${host}/uploads/${encodeURIComponent(doc.filepath)}`;
+      // Build relative URL as fallback for files uploaded before cloud storage migration
+      const localUrl = `/uploads/${encodeURIComponent(doc.filepath)}`;
       
       let fileUrl = localUrl;
       try {
@@ -213,9 +225,7 @@ router.get('/:id', authMiddleware, async (req: any, res: any) => {
     
     const data = docSnap.data() as any;
     
-    const protocol = req.protocol;
-    const host = req.get('host') || 'localhost:5000';
-    const localUrl = `${protocol}://${host}/uploads/${encodeURIComponent(data.filepath)}`;
+    const localUrl = `/uploads/${encodeURIComponent(data.filepath)}`;
     
     let fileUrl = localUrl;
     try {

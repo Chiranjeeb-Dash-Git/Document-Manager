@@ -103,11 +103,23 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
 
     const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `safe-${Date.now()}-${safeName}`;
-    const fileRef = bucket.file(filename);
 
-    await fileRef.save(req.file.buffer, {
-      metadata: { contentType: req.file.mimetype }
-    });
+    // Try Firebase Storage first, fall back to local disk
+    let storedInCloud = false;
+    try {
+      const fileRef = bucket.file(filename);
+      await fileRef.save(req.file.buffer, {
+        metadata: { contentType: req.file.mimetype }
+      });
+      storedInCloud = true;
+    } catch (cloudErr: any) {
+      console.warn('Firebase Storage upload failed for safe item, saving to local disk:', cloudErr.message || cloudErr);
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+    }
     
     const docData = {
       filename: req.file.originalname,
@@ -115,6 +127,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
       mimetype: req.file.mimetype,
       size: req.file.size,
       ownerId: req.userId,
+      storedInCloud,
       createdAt: new Date().toISOString(),
     };
     
@@ -135,9 +148,7 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
       
     const items = await Promise.all(snapshot.docs.map(async doc => {
       const data = doc.data() as any;
-      const protocol = req.protocol;
-      const host = req.get('host') || 'localhost:5000';
-      const localUrl = `${protocol}://${host}/uploads/${encodeURIComponent(data.filepath)}`;
+      const localUrl = `/uploads/${encodeURIComponent(data.filepath)}`;
       
       let fileUrl = localUrl;
       try {

@@ -15,6 +15,8 @@
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
     "@sendgrid/mail": "^8.1.6",
+    "@types/bcryptjs": "^2.4.6",
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "cloudconvert": "^3.0.0",
     "compression": "^1.8.1",
