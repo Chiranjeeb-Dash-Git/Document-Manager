@@ -111,7 +111,14 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `${Date.now()}-${safeName}`;
 
-    // Try Firebase Storage first, fall back to local disk
+    // Save to persistent local volume first (primary storage)
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+
+    // Optionally back up to Firebase Storage (non-fatal if it fails)
     let storedInCloud = false;
     try {
       const fileRef = bucket.file(filename);
@@ -120,13 +127,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
       });
       storedInCloud = true;
     } catch (cloudErr: any) {
-      console.warn('Firebase Storage upload failed, saving to local disk:', cloudErr.message || cloudErr);
-      // Save to local uploads/ folder as fallback
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-      fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+      console.warn('Firebase Storage backup failed (file already saved locally):', cloudErr.message || cloudErr);
     }
 
     const docData = {
@@ -168,22 +169,26 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
     const paginatedDocs = allDocs.slice(startIndex, startIndex + limit);
       
     const documents = await Promise.all(paginatedDocs.map(async doc => {
-      // Build relative URL as fallback for files uploaded before cloud storage migration
+      // Check local persistent volume first (primary storage)
+      const localFilePath = path.join(process.cwd(), 'uploads', doc.filepath);
       const localUrl = `/uploads/${encodeURIComponent(doc.filepath)}`;
-      
+
       let fileUrl = localUrl;
-      try {
-        const fileRef = bucket.file(doc.filepath);
-        const [exists] = await fileRef.exists();
-        if (exists) {
-          const [url] = await fileRef.getSignedUrl({
-            action: 'read',
-            expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
-          });
-          fileUrl = url;
+      if (!fs.existsSync(localFilePath)) {
+        // Local file not found — try Firebase Storage as fallback
+        try {
+          const fileRef = bucket.file(doc.filepath);
+          const [exists] = await fileRef.exists();
+          if (exists) {
+            const [url] = await fileRef.getSignedUrl({
+              action: 'read',
+              expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
+            });
+            fileUrl = url;
+          }
+        } catch (err) {
+          // Keep local URL; file may simply not exist yet
         }
-      } catch (err) {
-        // Keep local URL fallback
       }
 
       // Fetch signatures only for the paginated docs (limits N+1 queries)
@@ -225,21 +230,26 @@ router.get('/:id', authMiddleware, async (req: any, res: any) => {
     
     const data = docSnap.data() as any;
     
+    // Check local persistent volume first (primary storage)
+    const localFilePath = path.join(process.cwd(), 'uploads', data.filepath);
     const localUrl = `/uploads/${encodeURIComponent(data.filepath)}`;
-    
+
     let fileUrl = localUrl;
-    try {
-      const fileRef = bucket.file(data.filepath);
-      const [exists] = await fileRef.exists();
-      if (exists) {
-        const [url] = await fileRef.getSignedUrl({
-          action: 'read',
-          expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
-        });
-        fileUrl = url;
+    if (!fs.existsSync(localFilePath)) {
+      // Local file not found — try Firebase Storage as fallback
+      try {
+        const fileRef = bucket.file(data.filepath);
+        const [exists] = await fileRef.exists();
+        if (exists) {
+          const [url] = await fileRef.getSignedUrl({
+            action: 'read',
+            expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
+          });
+          fileUrl = url;
+        }
+      } catch (err) {
+        // Keep local URL; file may simply not exist yet
       }
-    } catch (err) {
-      // Keep local URL fallback
     }
     
     // Fetch signatures
@@ -261,15 +271,20 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
     if (!docSnap.exists) return res.status(404).json({ error: 'Document not found' });
     const document = docSnap.data() as any;
 
+    // Load PDF from local persistent volume first (primary storage)
+    const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
     let existingPdfBytes: Buffer;
-    const fileRef = bucket.file(document.filepath);
-    const [exists] = await fileRef.exists();
-    if (exists) {
+    if (fs.existsSync(pdfPath)) {
+      existingPdfBytes = fs.readFileSync(pdfPath);
+    } else {
+      // Fall back to Firebase Storage if not on local disk
+      const fileRef = bucket.file(document.filepath);
+      const [cloudExists] = await fileRef.exists();
+      if (!cloudExists) {
+        return res.status(404).json({ error: 'PDF file not found in storage' });
+      }
       const [buffer] = await fileRef.download();
       existingPdfBytes = buffer;
-    } else {
-      const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
-      existingPdfBytes = fs.readFileSync(pdfPath);
     }
 
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
@@ -296,14 +311,23 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
       });
 
       const pdfBytes = await pdfDoc.save();
-      
-      if (exists) {
-        await fileRef.save(pdfBytes, { metadata: { contentType: 'application/pdf' }});
-      } else {
-        const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
-        fs.writeFileSync(pdfPath, pdfBytes);
+
+      // Save signed PDF back to local persistent volume (primary)
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(pdfPath, pdfBytes);
+
+      // Optionally back up signed PDF to Firebase Storage (non-fatal if it fails)
+      try {
+        const firebaseFileRef = bucket.file(document.filepath);
+        await firebaseFileRef.save(pdfBytes, { metadata: { contentType: 'application/pdf' } });
+      } catch (cloudErr: any) {
+        console.warn('Firebase Storage backup of signed PDF failed (saved locally):', cloudErr.message || cloudErr);
       }
     }
+
 
     await docRef.update({
       status: 'Signed',
@@ -349,12 +373,13 @@ router.delete('/:id', authMiddleware, async (req: any, res: any) => {
     // Delete the DB record
     await docRef.delete();
 
-    // Delete the file from bucket or disk
+    // Delete from local persistent volume first, then attempt Firebase cleanup
+    const filePath = path.join(process.cwd(), 'uploads', document.filepath);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     try {
       await bucket.file(document.filepath).delete();
     } catch (e) {
-      const filePath = path.join(process.cwd(), 'uploads', document.filepath);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      // Firebase copy may not exist — that's fine
     }
 
     res.json({ success: true });

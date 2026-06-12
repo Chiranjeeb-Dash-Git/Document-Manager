@@ -60,16 +60,20 @@ router.post('/requests/:token/sign', async (req: any, res: any) => {
 
     const { x, y, width, height, pageNum, signatureImage, rotation } = req.body;
 
-    // Read PDF from Firebase Storage (Vercel has no persistent local filesystem)
+    // Load PDF from local persistent volume first (primary storage)
+    const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
     let existingPdfBytes: Buffer;
-    const fileRef = bucket.file(documentData.filepath);
-    const [exists] = await fileRef.exists();
-    if (exists) {
+    if (fs.existsSync(pdfPath)) {
+      existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
+    } else {
+      // Fall back to Firebase Storage if not on local disk
+      const fileRef = bucket.file(documentData.filepath);
+      const [cloudExists] = await fileRef.exists();
+      if (!cloudExists) {
+        return res.status(404).json({ error: 'PDF file not found in storage' });
+      }
       const [buffer] = await fileRef.download();
       existingPdfBytes = buffer;
-    } else {
-      const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
-      existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
     }
     const pdfDoc = await PDFDocument.load(existingPdfBytes);
     
@@ -92,12 +96,20 @@ router.post('/requests/:token/sign', async (req: any, res: any) => {
     });
 
     const pdfBytes = await pdfDoc.save();
-    // Save back to Firebase Storage (or local disk as fallback)
-    if (exists) {
-      await fileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
-    } else {
-      const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
-      fs.writeFileSync(pdfPath, pdfBytes);
+
+    // Save signed PDF back to local persistent volume (primary)
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    fs.writeFileSync(pdfPath, pdfBytes);
+
+    // Optionally back up signed PDF to Firebase Storage (non-fatal if it fails)
+    try {
+      const firebaseFileRef = bucket.file(documentData.filepath);
+      await firebaseFileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
+    } catch (cloudErr: any) {
+      console.warn('Firebase Storage backup of signed PDF failed (saved locally):', cloudErr.message || cloudErr);
     }
 
     // Update SignatureRequest
@@ -191,16 +203,20 @@ router.post('/document/:token/sign', async (req: any, res: any) => {
 
     // Only modify the PDF if a signature image was provided
     if (signatureImage) {
-      // Read PDF from Firebase Storage (Vercel has no persistent local filesystem)
+      // Load PDF from local persistent volume first (primary storage)
+      const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
       let existingPdfBytes: Buffer;
-      const fileRef = bucket.file(document.filepath);
-      const [fileExists] = await fileRef.exists();
-      if (fileExists) {
+      if (fs.existsSync(pdfPath)) {
+        existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
+      } else {
+        // Fall back to Firebase Storage if not on local disk
+        const fileRef = bucket.file(document.filepath);
+        const [cloudExists] = await fileRef.exists();
+        if (!cloudExists) {
+          return res.status(404).json({ error: 'PDF file not found in storage' });
+        }
         const [buffer] = await fileRef.download();
         existingPdfBytes = buffer;
-      } else {
-        const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
-        existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
       }
       const pdfDoc = await PDFDocument.load(existingPdfBytes);
       
@@ -223,12 +239,20 @@ router.post('/document/:token/sign', async (req: any, res: any) => {
       });
 
       const pdfBytes = await pdfDoc.save();
-      // Save back to Firebase Storage (or local disk as fallback)
-      if (fileExists) {
-        await fileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
-      } else {
-        const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
-        fs.writeFileSync(pdfPath, pdfBytes);
+
+      // Save signed PDF back to local persistent volume (primary)
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(pdfPath, pdfBytes);
+
+      // Optionally back up signed PDF to Firebase Storage (non-fatal if it fails)
+      try {
+        const firebaseFileRef = bucket.file(document.filepath);
+        await firebaseFileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
+      } catch (cloudErr: any) {
+        console.warn('Firebase Storage backup of signed PDF failed (saved locally):', cloudErr.message || cloudErr);
       }
     }
 
