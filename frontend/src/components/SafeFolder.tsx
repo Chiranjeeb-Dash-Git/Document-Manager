@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Upload, FileText, Download, Trash2, ShieldCheck, X, Eye, Film, Music } from 'lucide-react';
 import api, { API_BASE } from '../api';
+import PDFViewer from './PDFViewer';
 
 interface SafeItem {
   id: string;
@@ -402,7 +403,9 @@ export default function SafeFolder() {
                   <audio src={viewingFile.url} controls autoPlay style={{ width: '400px', maxWidth: '90vw' }} />
                 </div>
               ) : viewingFile.type === 'pdf' ? (
-                <iframe src={viewingFile.url} style={{ width: '100%', height: '100%', border: 'none', borderRadius: '8px', background: 'white', pointerEvents: 'auto' }} title="PDF Preview" onClick={(e) => e.stopPropagation()} />
+                <div style={{ width: '100%', height: '100%', border: 'none', borderRadius: '8px', background: 'white', pointerEvents: 'auto', overflow: 'auto', display: 'flex', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+                  <PDFViewer fileUrl={viewingFile.url} />
+                </div>
               ) : viewingFile.type === 'text' ? (
                 <div style={{ width: '100%', height: '100%', maxWidth: '900px', background: '#1e1e2e', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', overflow: 'auto', pointerEvents: 'auto', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
                   <div style={{ padding: '12px 20px', background: 'rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
