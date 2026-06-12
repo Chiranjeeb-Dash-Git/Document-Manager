@@ -246,8 +246,8 @@ export default function SignDocument() {
   const startMobileSession = async () => {
     if (mobileSessionId) return; // Already started
     try {
-      const resp = await fetch(`/api/mobile-sig/create`, { method: 'POST' });
-      const { sessionId, localIp } = await resp.json();
+      const resp = await api.post(`/mobile-sig/create`);
+      const { sessionId, localIp } = resp.data;
       setMobileSessionId(sessionId);
       const origin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
         ? `http://${localIp}:${window.location.port || '5173'}` 
@@ -266,8 +266,8 @@ export default function SignDocument() {
     if (!mobilePolling || !mobileSessionId) return;
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const resp = await fetch(`/api/mobile-sig/${mobileSessionId}/poll`);
-        const data = await resp.json();
+        const resp = await api.get(`/mobile-sig/${mobileSessionId}/poll`);
+        const data = resp.data;
         if (data.ready && data.signature) {
           clearInterval(pollIntervalRef.current!);
           setMobilePolling(false);

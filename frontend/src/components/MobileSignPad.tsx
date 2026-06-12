@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle, RotateCcw, Send } from 'lucide-react';
+import api from '../api';
 
 export default function MobileSignPad() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -127,19 +128,8 @@ export default function MobileSignPad() {
     setError('');
 
     const dataUrl = getScaledDataUrl();
-    // Use the same origin the page was loaded from (goes through Vite proxy)
-    const submitUrl = `${window.location.origin}/api/mobile-sig/${sessionId}/submit`;
-
     try {
-      const resp = await fetch(submitUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signature: dataUrl }),
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Server ${resp.status}: ${text}`);
-      }
+      await api.post(`/mobile-sig/${sessionId}/submit`, { signature: dataUrl });
       setSubmitted(true);
     } catch (err: any) {
       console.error('Signature submit failed:', err);

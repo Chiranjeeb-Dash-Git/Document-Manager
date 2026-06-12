@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 import { Document as PdfDocument, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -246,8 +246,8 @@ export default function PublicSignDocument() {
   const startMobileSession = async () => {
     if (mobileSessionId) return; // Already started
     try {
-      const resp = await fetch(`/api/mobile-sig/create`, { method: 'POST' });
-      const { sessionId, localIp } = await resp.json();
+      const resp = await api.post(`/mobile-sig/create`);
+      const { sessionId, localIp } = resp.data;
       setMobileSessionId(sessionId);
       const origin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
         ? `http://${localIp}:${window.location.port || '5173'}` 
@@ -266,8 +266,8 @@ export default function PublicSignDocument() {
     if (!mobilePolling || !mobileSessionId) return;
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const resp = await fetch(`/api/mobile-sig/${mobileSessionId}/poll`);
-        const data = await resp.json();
+        const resp = await api.get(`/mobile-sig/${mobileSessionId}/poll`);
+        const data = resp.data;
         if (data.ready && data.signature) {
           clearInterval(pollIntervalRef.current!);
           setMobilePolling(false);
@@ -308,7 +308,7 @@ export default function PublicSignDocument() {
   useEffect(() => {
     const fetchDoc = async () => {
       try {
-        const res = await axios.get(`/api/public/requests/${token}`);
+        const res = await api.get(`/public/requests/${token}`);
         setDoc(res.data.document);
       } catch (err) {
         console.error(err);
@@ -405,7 +405,7 @@ export default function PublicSignDocument() {
       const screenBottomY = sigPos.y + imgH;
       const pdfY = pdfH - (screenBottomY / scale);
 
-      await axios.post(`/api/public/requests/${token}/sign`, {
+      await api.post(`/public/requests/${token}/sign`, {
         x: Math.max(0, pdfX),
         y: Math.max(0, pdfY),
         width: pdfImageWidth,
