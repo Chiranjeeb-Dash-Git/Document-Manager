@@ -18,6 +18,9 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Trust Railway's reverse proxy so express-rate-limit can read X-Forwarded-For
+app.set('trust proxy', 1);
+
 // Security and Performance Middlewares
 app.use(helmet({ crossOriginResourcePolicy: false })); // Allow cross-origin for static files/PDFs
 app.use(compression());
