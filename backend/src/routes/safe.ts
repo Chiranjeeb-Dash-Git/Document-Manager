@@ -104,7 +104,14 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     const safeName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `safe-${Date.now()}-${safeName}`;
 
-    // Try Firebase Storage first, fall back to local disk
+    // Save to persistent local volume first (primary storage)
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+
+    // Optionally back up to Firebase Storage (non-fatal if it fails)
     let storedInCloud = false;
     try {
       const fileRef = bucket.file(filename);
@@ -113,12 +120,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
       });
       storedInCloud = true;
     } catch (cloudErr: any) {
-      console.warn('Firebase Storage upload failed for safe item, saving to local disk:', cloudErr.message || cloudErr);
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-      fs.writeFileSync(path.join(uploadsDir, filename), req.file.buffer);
+      console.warn('Firebase Storage backup failed for safe item (file already saved locally):', cloudErr.message || cloudErr);
     }
     
     const docData = {
@@ -148,21 +150,26 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
       
     const items = await Promise.all(snapshot.docs.map(async doc => {
       const data = doc.data() as any;
+      // Check local persistent volume first (primary storage)
+      const localFilePath = path.join(process.cwd(), 'uploads', data.filepath);
       const localUrl = `/uploads/${encodeURIComponent(data.filepath)}`;
-      
+
       let fileUrl = localUrl;
-      try {
-        const fileRef = bucket.file(data.filepath);
-        const [exists] = await fileRef.exists();
-        if (exists) {
-          const [url] = await fileRef.getSignedUrl({
-            action: 'read',
-            expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
-          });
-          fileUrl = url;
+      if (!fs.existsSync(localFilePath)) {
+        // Local file not found — try Firebase Storage as fallback
+        try {
+          const fileRef = bucket.file(data.filepath);
+          const [exists] = await fileRef.exists();
+          if (exists) {
+            const [url] = await fileRef.getSignedUrl({
+              action: 'read',
+              expires: Date.now() + 1000 * 60 * 60 * 24 // 24 hours
+            });
+            fileUrl = url;
+          }
+        } catch (err) {
+          // Keep local URL; file may simply not exist yet
         }
-      } catch (err) {
-        // Keep local URL fallback
       }
       return { id: doc.id, ...data, fileUrl };
     }));
@@ -186,14 +193,15 @@ router.delete('/:id', authMiddleware, async (req: any, res: any) => {
     
     if (document.ownerId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
 
-    // Delete the file from bucket or disk
+    // Delete from local persistent volume first, then attempt Firebase cleanup
+    const filePath = path.join(process.cwd(), 'uploads', document.filepath);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
     try {
       await bucket.file(document.filepath).delete();
     } catch (e) {
-      const filePath = path.join(process.cwd(), 'uploads', document.filepath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      // Firebase copy may not exist — that's fine
     }
 
     // Delete the DB record
