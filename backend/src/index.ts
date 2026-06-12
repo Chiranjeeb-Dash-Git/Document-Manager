@@ -18,7 +18,7 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Trust Railway's reverse proxy so express-rate-limit can read X-Forwarded-For
+// Trust reverse proxy (Railway, Render, etc.) so req.protocol is accurate
 app.set('trust proxy', 1);
 
 // Security and Performance Middlewares

@@ -152,8 +152,8 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
       const data = doc.data() as any;
       // Check local persistent volume first (primary storage)
       const localFilePath = path.join(process.cwd(), 'uploads', data.filepath);
-      const localUrl = `/uploads/${encodeURIComponent(data.filepath)}`;
-
+      const origin = `${req.protocol}://${req.get('host')}`;
+      const localUrl = `${origin}/uploads/${encodeURIComponent(data.filepath)}`;
       let fileUrl = localUrl;
       if (!fs.existsSync(localFilePath)) {
         // Local file not found — try Firebase Storage as fallback

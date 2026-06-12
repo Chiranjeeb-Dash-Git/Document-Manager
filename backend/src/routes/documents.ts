@@ -171,7 +171,9 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
     const documents = await Promise.all(paginatedDocs.map(async doc => {
       // Check local persistent volume first (primary storage)
       const localFilePath = path.join(process.cwd(), 'uploads', doc.filepath);
-      const localUrl = `/uploads/${encodeURIComponent(doc.filepath)}`;
+      // Build absolute URL so the frontend on a different domain can reach uploaded files
+      const origin = `${req.protocol}://${req.get('host')}`;
+      const localUrl = `${origin}/uploads/${encodeURIComponent(doc.filepath)}`;
 
       let fileUrl = localUrl;
       if (!fs.existsSync(localFilePath)) {
@@ -232,8 +234,8 @@ router.get('/:id', authMiddleware, async (req: any, res: any) => {
     
     // Check local persistent volume first (primary storage)
     const localFilePath = path.join(process.cwd(), 'uploads', data.filepath);
-    const localUrl = `/uploads/${encodeURIComponent(data.filepath)}`;
-
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const localUrl = `${origin}/uploads/${encodeURIComponent(data.filepath)}`;
     let fileUrl = localUrl;
     if (!fs.existsSync(localFilePath)) {
       // Local file not found — try Firebase Storage as fallback
