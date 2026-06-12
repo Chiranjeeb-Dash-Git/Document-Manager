@@ -56,7 +56,7 @@ app.get('/api/health', (req, res) => {
 
 // Only listen when running locally (not on Vercel)
 if (!process.env.VERCEL) {
-  app.listen(port, () => {
+  app.listen(Number(port), '0.0.0.0', () => {
     console.log(`Server running on port ${port}`);
   });
 }
