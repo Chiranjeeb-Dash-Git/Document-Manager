@@ -43,10 +43,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Fallback to Firebase Storage if file is not found on local disk
-app.use('/uploads/:filename', async (req, res) => {
+app.get('/uploads/:filename', async (req, res) => {
   try {
     const { bucket } = await import('./firebase');
-    const filename = req.params.filename;
+    const filename = decodeURIComponent(req.params.filename);
     const fileRef = bucket.file(filename);
     
     const [exists] = await fileRef.exists();
@@ -54,7 +54,8 @@ app.use('/uploads/:filename', async (req, res) => {
       return res.status(404).send('File not found in storage');
     }
     
-    res.setHeader('Content-Type', 'application/pdf');
+    const [metadata] = await fileRef.getMetadata();
+    res.setHeader('Content-Type', metadata.contentType || 'application/octet-stream');
     fileRef.createReadStream().pipe(res);
   } catch (err) {
     console.error('Firebase fallback error:', err);
