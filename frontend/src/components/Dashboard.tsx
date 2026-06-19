@@ -170,7 +170,7 @@ export default function Dashboard() {
     setGeneratingLink(true);
     try {
       const res = await api.post(`/documents/${managingDoc.id}/public-link`);
-      setPublicLink(`http://localhost:5173/doc/${res.data.publicToken}`);
+      setPublicLink(`${window.location.origin}/doc/${res.data.publicToken}`);
     } catch (err) {
       console.error(err);
       alert('Failed to generate public link');
@@ -183,7 +183,7 @@ export default function Dashboard() {
     setGeneratingViewLink(doc.id);
     try {
       const res = await api.post(`/documents/${doc.id}/public-view-link`);
-      const link = `http://localhost:5173/view/${res.data.publicViewToken}`;
+      const link = `${window.location.origin}/view/${res.data.publicViewToken}`;
       navigator.clipboard.writeText(link);
       alert(`Public view link copied to clipboard!\n${link}`);
     } catch (err) {
@@ -627,7 +627,7 @@ export default function Dashboard() {
                                       {sendingEmailId === req.id ? 'Sending...' : req.emailSent ? 'Resend' : 'Send Email'}
                                     </button>
                                     <button
-                                      onClick={() => { navigator.clipboard.writeText(`http://localhost:5173/sign/public/${req.token}`); alert(`Link for ${req.email} copied!`); }}
+                                      onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/sign/public/${req.token}`); alert(`Link for ${req.email} copied!`); }}
                                       className="cin-btn-copy-link"
                                     >
                                       <Copy className="w-3.5 h-3.5" /> Copy Link
