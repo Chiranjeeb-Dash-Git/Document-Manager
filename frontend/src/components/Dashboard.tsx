@@ -84,8 +84,9 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       fetchDocuments(1, false);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err.response?.data?.error || 'Failed to upload document. The file might be too large (Vercel has a 4.5MB upload limit).');
     } finally {
       setUploading(false);
     }
