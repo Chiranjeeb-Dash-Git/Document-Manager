@@ -324,7 +324,7 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
       // Optionally back up signed PDF to Firebase Storage (non-fatal if it fails)
       try {
         const firebaseFileRef = bucket.file(document.filepath);
-        await firebaseFileRef.save(pdfBytes, { metadata: { contentType: 'application/pdf' } });
+        await firebaseFileRef.save(Buffer.from(pdfBytes), { metadata: { contentType: 'application/pdf' } });
       } catch (cloudErr: any) {
         console.warn('Firebase Storage backup of signed PDF failed (saved locally):', cloudErr.message || cloudErr);
       }
@@ -346,9 +346,9 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
     });
 
     res.json({ success: true, message: 'Document signed successfully' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Something went wrong' });
+  } catch (err: any) {
+    console.error('Sign error:', err);
+    res.status(500).json({ error: err.message || 'Failed to sign document', stack: err.stack });
   }
 });
 
