@@ -15,7 +15,7 @@
   
   <br />
   
-  [![Live Demo](https://img.shields.io/badge/Live_Demo-00F2FF?style=for-the-badge&logo=vercel&logoColor=black)](https://document-manager-frontend-production.up.railway.app/)
+  [![Live Demo](https://document-manager-quo8.vercel.app/)
 </div>
 
 <br />
