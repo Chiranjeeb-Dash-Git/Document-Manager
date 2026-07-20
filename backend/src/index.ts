@@ -43,9 +43,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads')));
 
 // Fallback to Firebase Storage if file is not found on local disk
+import { bucket } from './firebase';
+
 app.get('/uploads/:filename', async (req, res) => {
   try {
-    const { bucket } = await import('./firebase');
     const filename = decodeURIComponent(req.params.filename);
     const fileRef = bucket.file(filename);
     
@@ -54,9 +55,15 @@ app.get('/uploads/:filename', async (req, res) => {
       return res.status(404).send('File not found in storage');
     }
     
-    const [metadata] = await fileRef.getMetadata();
-    res.setHeader('Content-Type', metadata.contentType || 'application/octet-stream');
-    fileRef.createReadStream().pipe(res);
+    // Generate a signed URL that expires in 1 hour
+    const [url] = await fileRef.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 1000 * 60 * 60,
+    });
+    
+    // Redirect the client to download directly from Firebase
+    // This bypasses Vercel's strict 4.5MB serverless response payload limit!
+    res.redirect(url);
   } catch (err) {
     console.error('Firebase fallback error:', err);
     res.status(500).send('Server Error');
