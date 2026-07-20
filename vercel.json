@@ -3,8 +3,7 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "backend/src/index.ts": {
-      "runtime": "@vercel/node@latest",
-      "maxDuration": 30
+      "runtime": "@vercel/node@latest"
     }
   },
   "rewrites": [
