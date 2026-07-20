@@ -63,28 +63,6 @@ The project is structured as a full-stack decoupled monorepo:
 
 ---
 
-## 🚀 Deployment Guide
-
-This project is configured for split deployment: a serverless frontend and a stateful persistent backend.
-
-### 1. Deploy the Frontend (Netlify / Vercel)
-1. Import this repository to your hosting provider.
-2. Set the **Root Directory** to `frontend`.
-3. Set the build command to `npm run build` and output directory to `dist`.
-4. Add Environment Variable: `VITE_API_URL=https://your-backend-url.up.railway.app/api`
-
-### 2. Deploy the Backend (Railway / Render)
-1. Create a new Web Service in [Railway.app](https://railway.app/).
-2. Set the **Root Directory** to `backend`.
-3. Build Command: `npm install && npm run build`
-4. Start Command: `npm start`
-5. Ensure the following Environment Variables are configured:
-   - `JWT_SECRET`
-   - `FIREBASE_SERVICE_ACCOUNT_KEY` (JSON string)
-   - `FIREBASE_STORAGE_BUCKET`
-
----
-
 ## 💻 Local Development
 
 To run this project locally on your machine:
