@@ -11,6 +11,7 @@ export default function MobileSignPad() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [penColor, setPenColor] = useState('#000000');
   const lastPt = useRef<{ x: number; y: number } | null>(null);
 
   // Initialize canvas with ResizeObserver for full-area drawing
@@ -30,7 +31,7 @@ export default function MobileSignPad() {
       const ctx = canvas.getContext('2d')!;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.strokeStyle = '#1e1e2e';
+      ctx.strokeStyle = penColor;
       ctx.lineWidth = 3;
     };
 
@@ -39,7 +40,7 @@ export default function MobileSignPad() {
     initCanvas();
 
     return () => ro.disconnect();
-  }, []);
+  }, [penColor]);
 
   const getPos = useCallback((e: React.TouchEvent | React.MouseEvent) => {
     const canvas = canvasRef.current;
@@ -74,6 +75,7 @@ export default function MobileSignPad() {
     if (!canvas || !lastPt.current) return;
 
     const ctx = canvas.getContext('2d')!;
+    ctx.strokeStyle = penColor;
     const pos = getPos(e);
 
     ctx.beginPath();
@@ -97,7 +99,7 @@ export default function MobileSignPad() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#1e1e2e';
+    ctx.strokeStyle = penColor;
     ctx.lineWidth = 3;
     setHasDrawn(false);
   };
@@ -189,6 +191,28 @@ export default function MobileSignPad() {
 
       {/* Canvas area */}
       <div style={{ flex: 1, padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        
+        {/* Color Picker */}
+        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginBottom: '0.25rem' }}>
+          {[
+            { id: 'black', color: '#000000', label: 'Black' },
+            { id: 'blue', color: '#2563eb', label: 'Blue' },
+            { id: 'red', color: '#dc2626', label: 'Red' },
+          ].map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPenColor(p.color)}
+              aria-label={`Select ${p.label} Pen`}
+              style={{
+                width: 32, height: 32, borderRadius: '50%',
+                background: p.color,
+                border: penColor === p.color ? '2px solid #fff' : '2px solid transparent',
+                boxShadow: penColor === p.color ? `0 0 0 2px ${p.color}` : '0 2px 8px rgba(0,0,0,0.2)',
+                cursor: 'pointer', transition: 'all 0.2s', padding: 0
+              }}
+            />
+          ))}
+        </div>
         <div style={{
           position: 'relative', background: '#fff', borderRadius: 16,
           flex: 1, minHeight: 300, overflow: 'hidden',
