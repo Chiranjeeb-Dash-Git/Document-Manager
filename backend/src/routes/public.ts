@@ -61,7 +61,7 @@ router.post('/requests/:token/sign', async (req: any, res: any) => {
     const { x, y, width, height, pageNum, signatureImage, rotation } = req.body;
 
     // Load PDF from local persistent volume first (primary storage)
-    const pdfPath = path.join(process.cwd(), 'uploads', documentData.filepath);
+    const pdfPath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', documentData.filepath);
     let existingPdfBytes: Buffer;
     if (fs.existsSync(pdfPath)) {
       existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
@@ -98,7 +98,7 @@ router.post('/requests/:token/sign', async (req: any, res: any) => {
     const pdfBytes = await pdfDoc.save();
 
     // Save signed PDF back to local persistent volume (primary)
-    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const uploadsDir = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
@@ -204,7 +204,7 @@ router.post('/document/:token/sign', async (req: any, res: any) => {
     // Only modify the PDF if a signature image was provided
     if (signatureImage) {
       // Load PDF from local persistent volume first (primary storage)
-      const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
+      const pdfPath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', document.filepath);
       let existingPdfBytes: Buffer;
       if (fs.existsSync(pdfPath)) {
         existingPdfBytes = fs.readFileSync(pdfPath) as unknown as Buffer;
@@ -241,7 +241,7 @@ router.post('/document/:token/sign', async (req: any, res: any) => {
       const pdfBytes = await pdfDoc.save();
 
       // Save signed PDF back to local persistent volume (primary)
-      const uploadsDir = path.join(process.cwd(), 'uploads');
+      const uploadsDir = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads');
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }

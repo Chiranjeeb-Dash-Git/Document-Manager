@@ -105,7 +105,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     const filename = `safe-${Date.now()}-${safeName}`;
 
     // Save to persistent local volume first (primary storage)
-    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const uploadsDir = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
@@ -151,7 +151,7 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
     const items = await Promise.all(snapshot.docs.map(async doc => {
       const data = doc.data() as any;
       // Check local persistent volume first (primary storage)
-      const localFilePath = path.join(process.cwd(), 'uploads', data.filepath);
+      const localFilePath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', data.filepath);
       const origin = `${req.protocol}://${req.get('host')}`;
       const localUrl = `${origin}/uploads/${encodeURIComponent(data.filepath)}`;
       let fileUrl = localUrl;
@@ -194,7 +194,7 @@ router.delete('/:id', authMiddleware, async (req: any, res: any) => {
     if (document.ownerId !== req.userId) return res.status(403).json({ error: 'Forbidden' });
 
     // Delete from local persistent volume first, then attempt Firebase cleanup
-    const filePath = path.join(process.cwd(), 'uploads', document.filepath);
+    const filePath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', document.filepath);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }

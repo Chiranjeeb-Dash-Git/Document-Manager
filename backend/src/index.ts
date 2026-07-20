@@ -40,7 +40,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Serve uploaded files statically
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+app.use('/uploads', express.static(path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads')));
 
 // Fallback to Firebase Storage if file is not found on local disk
 app.get('/uploads/:filename', async (req, res) => {

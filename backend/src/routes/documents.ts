@@ -112,7 +112,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req: any, r
     const filename = `${Date.now()}-${safeName}`;
 
     // Save to persistent local volume first (primary storage)
-    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const uploadsDir = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
@@ -170,7 +170,7 @@ router.get('/', authMiddleware, async (req: any, res: any) => {
       
     const documents = await Promise.all(paginatedDocs.map(async doc => {
       // Check local persistent volume first (primary storage)
-      const localFilePath = path.join(process.cwd(), 'uploads', doc.filepath);
+      const localFilePath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', doc.filepath);
       // Build absolute URL so the frontend on a different domain can reach uploaded files
       const origin = `${req.protocol}://${req.get('host')}`;
       const localUrl = `${origin}/uploads/${encodeURIComponent(doc.filepath)}`;
@@ -233,7 +233,7 @@ router.get('/:id', authMiddleware, async (req: any, res: any) => {
     const data = docSnap.data() as any;
     
     // Check local persistent volume first (primary storage)
-    const localFilePath = path.join(process.cwd(), 'uploads', data.filepath);
+    const localFilePath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', data.filepath);
     const origin = `${req.protocol}://${req.get('host')}`;
     const localUrl = `${origin}/uploads/${encodeURIComponent(data.filepath)}`;
     let fileUrl = localUrl;
@@ -274,7 +274,7 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
     const document = docSnap.data() as any;
 
     // Load PDF from local persistent volume first (primary storage)
-    const pdfPath = path.join(process.cwd(), 'uploads', document.filepath);
+    const pdfPath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', document.filepath);
     let existingPdfBytes: Buffer;
     if (fs.existsSync(pdfPath)) {
       existingPdfBytes = fs.readFileSync(pdfPath);
@@ -315,7 +315,7 @@ router.post('/:id/sign', authMiddleware, async (req: any, res: any) => {
       const pdfBytes = await pdfDoc.save();
 
       // Save signed PDF back to local persistent volume (primary)
-      const uploadsDir = path.join(process.cwd(), 'uploads');
+      const uploadsDir = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads');
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
@@ -376,7 +376,7 @@ router.delete('/:id', authMiddleware, async (req: any, res: any) => {
     await docRef.delete();
 
     // Delete from local persistent volume first, then attempt Firebase cleanup
-    const filePath = path.join(process.cwd(), 'uploads', document.filepath);
+    const filePath = path.join(process.env.VERCEL ? require('os').tmpdir() : process.cwd(), 'uploads', document.filepath);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     try {
       await bucket.file(document.filepath).delete();
